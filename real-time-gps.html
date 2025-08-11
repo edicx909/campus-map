@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Real-time GPS Tracking Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+  <style>
+    #map {
+      height: 100vh;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Initialize map at a default location (your campus)
+    const defaultLat = 10.05446056340716;
+    const defaultLng = 124.46859160859712;
+
+    const map = L.map('map').setView([defaultLat, defaultLng], 17);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    let marker;
+    let accuracyCircle;
+
+    // Called when location is found or updated
+    function onLocationFound(e) {
+      const radius = e.accuracy;
+
+      if (!marker) {
+        marker = L.marker(e.latlng).addTo(map);
+        accuracyCircle = L.circle(e.latlng, radius).addTo(map);
+        marker.bindPopup("You are within " + radius.toFixed(0) + " meters from this point").openPopup();
+      } else {
+        marker.setLatLng(e.latlng);
+        accuracyCircle.setLatLng(e.latlng).setRadius(radius);
+        marker.getPopup().setContent("You are within " + radius.toFixed(0) + " meters from this point");
+      }
+
+      map.setView(e.latlng, 17);
+    }
+
+    function onLocationError(e) {
+      alert("Error: " + e.message);
+    }
+
+    // Start watching the user location with high accuracy
+    map.locate({ watch: true, setView: true, maxZoom: 17, enableHighAccuracy: true });
+
+    map.on('locationfound', onLocationFound);
+    map.on('locationerror', onLocationError);
+  </script>
+</body>
+</html>
