@@ -2,67 +2,158 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Real-time GPS Tracking Map</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  />
+  <title>Cesium 3D Campus Map with Real-Time GPS and Boundary Check</title>
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.104/Build/Cesium/Cesium.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/cesium@1.104/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
   <style>
-    #map {
-      height: 100vh;
-      width: 100%;
-      margin: 0;
-      padding: 0;
+    html, body, #cesiumContainer {
+      width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+    #message {
+      position: absolute;
+      top: 10px; left: 50%; transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px 20px;
+      border-radius: 5px;
+      z-index: 999;
+      font-weight: bold;
+      color: green;
+    }
+    #message.outside {
+      color: red;
     }
   </style>
 </head>
 <body>
-  <div id="map"></div>
+  <div id="cesiumContainer"></div>
+  <div id="message">Waiting for location...</div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    // Initialize map at a default location (your campus)
-    const defaultLat = 10.05446056340716;
-    const defaultLng = 124.46859160859712;
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIzZjA4MzI1OS00ZWFjLTQzMGYtODQ4MC03NjQwNjY2NWRlNTkiLCJpZCI6MzI3NzAxLCJpYXQiOjE3NTQ4OTU1NDJ9.EfVrwHf-OiVxDxj6MclkPpwVb3A3rv13BsVTR0vtm5E';
 
-    const map = L.map('map').setView([defaultLat, defaultLng], 17);
+    // Initialize Cesium Viewer
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      terrainProvider: Cesium.createWorldTerrain(),
+      animation: false,
+      timeline: false
+    });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    // Fly to campus location
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(124.46859160859712, 10.05446056340716, 500),
+      duration: 3
+    });
 
-    let marker;
-    let accuracyCircle;
+    // Campus boundary polygon (coordinates in [lon, lat])
+    // Approximate rectangle around campus - adjust as needed
+    const campusBoundaryDegrees = [
+      [124.4675, 10.0539],
+      [124.4697, 10.0539],
+      [124.4697, 10.0555],
+      [124.4675, 10.0555]
+    ];
 
-    // Called when location is found or updated
-    function onLocationFound(e) {
-      const radius = e.accuracy;
+    // Convert to Cesium Cartesian3 points
+    const campusBoundaryCartesian = campusBoundaryDegrees.map(coord =>
+      Cesium.Cartesian3.fromDegrees(coord[0], coord[1])
+    );
 
-      if (!marker) {
-        marker = L.marker(e.latlng).addTo(map);
-        accuracyCircle = L.circle(e.latlng, radius).addTo(map);
-        marker.bindPopup("You are within " + radius.toFixed(0) + " meters from this point").openPopup();
-      } else {
-        marker.setLatLng(e.latlng);
-        accuracyCircle.setLatLng(e.latlng).setRadius(radius);
-        marker.getPopup().setContent("You are within " + radius.toFixed(0) + " meters from this point");
+    // Add polygon to map (semi-transparent)
+    const campusPolygon = viewer.entities.add({
+      name: 'BNSC Campus Boundary',
+      polygon: {
+        hierarchy: campusBoundaryCartesian,
+        material: Cesium.Color.BLUE.withAlpha(0.3),
+        outline: true,
+        outlineColor: Cesium.Color.BLUE
       }
+    });
 
-      map.setView(e.latlng, 17);
+    // Message div for user feedback
+    const messageDiv = document.getElementById('message');
+
+    // Create a marker entity for user location (will update)
+    const userEntity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(0,0),
+      point: {
+        pixelSize: 10,
+        color: Cesium.Color.RED,
+        outlineColor: Cesium.Color.WHITE,
+        outlineWidth: 2
+      },
+      label: {
+        text: 'You',
+        font: '14px sans-serif',
+        fillColor: Cesium.Color.RED,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        outlineWidth: 2,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        pixelOffset: new Cesium.Cartesian2(0, -15)
+      }
+    });
+
+    // Function to check if point is inside polygon on globe
+    // Using ray casting algorithm in 2D lat/lon space
+    function isPointInPolygon(point, polygon) {
+      const x = point.longitude;
+      const y = point.latitude;
+
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i][0], yi = polygon[i][1];
+        const xj = polygon[j][0], yj = polygon[j][1];
+
+        const intersect = ((yi > y) !== (yj > y)) &&
+                          (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
     }
 
-    function onLocationError(e) {
-      alert("Error: " + e.message);
+    // Use HTML5 Geolocation API to watch position
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(position => {
+        const lon = position.coords.longitude;
+        const lat = position.coords.latitude;
+        const accuracy = position.coords.accuracy;
+
+        // Update user entity position
+        const userPosition = Cesium.Cartesian3.fromDegrees(lon, lat);
+        userEntity.position = userPosition;
+
+        // Check if inside campus polygon
+        const inside = isPointInPolygon({longitude: lon, latitude: lat}, campusBoundaryDegrees);
+
+        if (inside) {
+          messageDiv.textContent = `You are inside the BNSC campus boundary. Accuracy: ±${accuracy.toFixed(1)} meters.`;
+          messageDiv.classList.remove('outside');
+          viewer.scene.camera.setView({
+            destination: userPosition,
+            orientation: {
+              heading: viewer.camera.heading,
+              pitch: viewer.camera.pitch,
+              roll: viewer.camera.roll
+            },
+            duration: 0.5
+          });
+        } else {
+          messageDiv.textContent = 'You are outside the BNSC campus boundary!';
+          messageDiv.classList.add('outside');
+        }
+
+      }, error => {
+        messageDiv.textContent = `Error getting location: ${error.message}`;
+        messageDiv.classList.add('outside');
+      }, {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000
+      });
+    } else {
+      messageDiv.textContent = 'Geolocation is not supported by this browser.';
+      messageDiv.classList.add('outside');
     }
-
-    // Start watching the user location with high accuracy
-    map.locate({ watch: true, setView: true, maxZoom: 17, enableHighAccuracy: true });
-
-    map.on('locationfound', onLocationFound);
-    map.on('locationerror', onLocationError);
   </script>
 </body>
 </html>
