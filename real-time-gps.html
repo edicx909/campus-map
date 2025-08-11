@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Cesium 3D Campus Map with Real-Time GPS and Boundary Check</title>
+  <title>Cesium 3D Campus Map with Right-Shifted Boundary & Real-Time GPS</title>
   <script src="https://cdn.jsdelivr.net/npm/cesium@1.104/Build/Cesium/Cesium.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/cesium@1.104/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
   <style>
@@ -32,34 +32,37 @@
   <script>
     Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIzZjA4MzI1OS00ZWFjLTQzMGYtODQ4MC03NjQwNjY2NWRlNTkiLCJpZCI6MzI3NzAxLCJpYXQiOjE3NTQ4OTU1NDJ9.EfVrwHf-OiVxDxj6MclkPpwVb3A3rv13BsVTR0vtm5E';
 
-    // Initialize Cesium Viewer
+    const centerLat = 10.05446056340716;
+    const centerLon = 124.46859160859712;
+
+    const radius = 0.0012;
+    const lonOffset = 0.0010;  // increased right shift
+
+    const numPoints = 40;
+
+    const campusBoundaryDegrees = [];
+    for (let i = 0; i < numPoints; i++) {
+      const angle = (i / numPoints) * 2 * Math.PI;
+      const lat = centerLat + radius * Math.sin(angle);
+      const lon = centerLon + radius * Math.cos(angle) + lonOffset;
+      campusBoundaryDegrees.push([lon, lat]);
+    }
+
+    const campusBoundaryCartesian = campusBoundaryDegrees.map(coord =>
+      Cesium.Cartesian3.fromDegrees(coord[0], coord[1])
+    );
+
     const viewer = new Cesium.Viewer('cesiumContainer', {
       terrainProvider: Cesium.createWorldTerrain(),
       animation: false,
       timeline: false
     });
 
-    // Fly to campus location
     viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(124.46859160859712, 10.05446056340716, 500),
+      destination: Cesium.Cartesian3.fromDegrees(centerLon + lonOffset, centerLat, 500),
       duration: 3
     });
 
-    // Campus boundary polygon (coordinates in [lon, lat])
-    // Approximate rectangle around campus - adjust as needed
-    const campusBoundaryDegrees = [
-      [124.4675, 10.0539],
-      [124.4697, 10.0539],
-      [124.4697, 10.0555],
-      [124.4675, 10.0555]
-    ];
-
-    // Convert to Cesium Cartesian3 points
-    const campusBoundaryCartesian = campusBoundaryDegrees.map(coord =>
-      Cesium.Cartesian3.fromDegrees(coord[0], coord[1])
-    );
-
-    // Add polygon to map (semi-transparent)
     const campusPolygon = viewer.entities.add({
       name: 'BNSC Campus Boundary',
       polygon: {
@@ -70,12 +73,10 @@
       }
     });
 
-    // Message div for user feedback
     const messageDiv = document.getElementById('message');
 
-    // Create a marker entity for user location (will update)
     const userEntity = viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(0,0),
+      position: Cesium.Cartesian3.fromDegrees(0, 0),
       point: {
         pixelSize: 10,
         color: Cesium.Color.RED,
@@ -93,8 +94,6 @@
       }
     });
 
-    // Function to check if point is inside polygon on globe
-    // Using ray casting algorithm in 2D lat/lon space
     function isPointInPolygon(point, polygon) {
       const x = point.longitude;
       const y = point.latitude;
@@ -111,23 +110,21 @@
       return inside;
     }
 
-    // Use HTML5 Geolocation API to watch position
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(position => {
-        const lon = position.coords.longitude;
+        const lon = position.coords.longitude + lonOffset;
         const lat = position.coords.latitude;
         const accuracy = position.coords.accuracy;
 
-        // Update user entity position
         const userPosition = Cesium.Cartesian3.fromDegrees(lon, lat);
         userEntity.position = userPosition;
 
-        // Check if inside campus polygon
         const inside = isPointInPolygon({longitude: lon, latitude: lat}, campusBoundaryDegrees);
 
         if (inside) {
           messageDiv.textContent = `You are inside the BNSC campus boundary. Accuracy: ±${accuracy.toFixed(1)} meters.`;
           messageDiv.classList.remove('outside');
+
           viewer.scene.camera.setView({
             destination: userPosition,
             orientation: {
